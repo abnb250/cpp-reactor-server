@@ -1,6 +1,6 @@
 # cpp-reactor-server
 
-一个从零实现的 C++17 Linux epoll Reactor 高并发网络服务器，用于学习 C++ 后端 / 游戏服务器开发。
+一个从零实现的 C++17 Linux epoll Reactor 高并发网络服务器，用于学习 C++ 后端 / 服务器开发。
 
 > 项目驱动学习，拒绝只输入不输出。  
 > 每天一个 GitHub commit，用输出倒逼输入。
