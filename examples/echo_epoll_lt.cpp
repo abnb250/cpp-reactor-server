@@ -23,12 +23,15 @@ static int create_listenfd(int port){
         exit(1);
     }
 
+    int opt = 1;
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
 
-    if(bind(listenfd, (sockaddr*)& addr, sizeof(addr) )< 0){
+    if(bind(listenfd, (sockaddr*)& addr, sizeof(addr)) < 0){
         perror("bind");
         exit(1);
     }
@@ -42,16 +45,54 @@ static int create_listenfd(int port){
         perror("set_noblocking");
         exit(1);
     }
+
     return listenfd;
 }
 
+static void close_conn(int epfd, int fd){
+    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+    close(fd);
+}
+
+static bool handle_read(int epfd, int fd){
+    char buf[4096];
+    for(;;){
+        ssize_t n = recv(fd, buf, sizeof(buf), 0);
+        if(n > 0){
+            ssize_t sent = 0;
+            while(sent < n){
+                ssize_t w = send(fd, buf+sent, n-sent, 0);
+                if(w < 0){
+                    if(errno == EINTR) continue;
+                    if(errno == EAGAIN || errno == EWOULDBLOCK){
+                        break;
+                    }
+                    return false;
+                }
+                sent += w;
+            }
+        }
+        else if(n == 0){
+            return false;
+        }
+        else{
+            if(errno == EAGAIN || errno == EWOULDBLOCK)
+                return true;
+            if(errno == EINTR) continue;
+            return false;
+        }
+    }
+}
+
 int main(){
+    signal(SIGPIPE, SIG_IGN);
+
     int listenfd = create_listenfd(8888);
     printf("listening on 8888, listenfd = %d\n", listenfd);
 
-    int epfd = epoll_create(0);
+    int epfd = epoll_create1(0);
     if(epfd < 0){
-        perror("epoll_create");
+        perror("epoll_create1");
         exit(1);
     }
 
@@ -72,7 +113,40 @@ int main(){
             perror("epoll_wait");
             break;
         }
-    }
+        for(int i = 0; i < n; i++){
+            int fd = events[i].data.fd;
+            if(fd == listenfd){
+                for(;;){
+                    sockaddr_in cli{};
+                    socklen_t len = sizeof(cli);
+                    int connfd = accept4(listenfd, (sockaddr*)& cli, &len, 
+                        SOCK_NONBLOCK);
+                    if(connfd < 0){
+                        if(errno == EAGAIN || errno == EWOULDBLOCK) break;
+                        if(errno == EINTR) continue;
+                        perror("accept4");
+                        break;
+                    }
+                    printf("new conn fd=%d from %s:%d\n", connfd, 
+                        inet_ntoa(cli.sin_addr), ntohs(cli.sin_port));
 
+                    epoll_event cev{};
+                    cev.events = EPOLLIN;
+                    cev.data.fd = connfd;
+                    if(epoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &cev) < 0){
+                        perror("epoll_ctl add connfd");
+                        close(connfd);
+                    }
+                }
+            }
+            else{
+                if(!handle_read(epfd, fd)){
+                    close_conn(epfd, fd);
+                }
+            }
+        }
+    }
+    close(epfd);
+    close(listenfd);
     return 0;
 }
