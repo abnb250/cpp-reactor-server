@@ -21,8 +21,8 @@
 
 > 更新时间：2026-10-14
 
-- [ ] 阻塞 TCP echo server
-- [ ] 非阻塞 + epoll LT echo server
+- [x] 阻塞 TCP echo server
+- [x] 非阻塞 + epoll LT echo server
 - [ ] 单线程 Reactor 重构
 - [ ] 多线程 Reactor + 线程池
 - [ ] 定时器 / 心跳机制

@@ -10,7 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 
-static int set_noblocking(int fd){
+static int set_nonblocking(int fd){
     int flags = fcntl(fd, F_GETFL, 0);
     if(flags == -1) return -1;
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -21,6 +21,12 @@ static int create_listenfd(int port){
     if(listenfd < 0){
         perror("listenfd");
         exit(-1);
+    }
+
+    int opt = 1;
+    if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0){
+        perror("setsockopt SO_REUSEADDR");
+        exit(1);
     }
 
     sockaddr_in addr{};
@@ -38,8 +44,8 @@ static int create_listenfd(int port){
         exit(1);
     }
 
-    if(set_noblocking(listenfd) < 0){
-        perror("set_noblocking");
+    if(set_nonblocking(listenfd) < 0){
+        perror("set_nonblocking");
         exit(1);
     }
 
@@ -52,6 +58,7 @@ static void close_conn(int epfd, int fd){
 }
 
 static bool handle_read(int epfd, int fd){
+    (void)epfd;
     char buf[4096];
     for(;;){
         ssize_t n = recv(fd, buf, sizeof(buf), 0);
@@ -61,8 +68,12 @@ static bool handle_read(int epfd, int fd){
                 ssize_t w = send(fd, buf+sent, n - sent, 0);
                 if(w < 0){
                     if(errno == EINTR) continue;
-                    if(errno == EAGAIN || 
-                        errno == EWOULDBLOCK) break;
+                    if(errno == EAGAIN || errno == EWOULDBLOCK){
+                        fprintf(stderr,
+                        "WARN:send EAGAGIN, %zd bytes dropped, fd=%d\n",
+                        n-sent, fd);
+                        return true;
+                    }
                     return false;
                 }
                 sent += w;
@@ -120,7 +131,15 @@ int main(){
                     sockaddr_in cli{};
                     socklen_t len = sizeof(cli);
                     int connfd = accept4(listenfd, 
-                        (sockaddr*)& cli, &len, SOCK_NONBLOCK);
+                        (sockaddr*)& cli, &len,
+                        SOCK_NONBLOCK | SOCK_CLOEXEC);
+
+                    // int fdflags = fcntl(connfd, F_GETFD);
+                    // printf("connfd=%d FD_CLOEXEC=%d O_NONBLOCK=%d\n",
+                    //        connfd,
+                    //        (fdflags & FD_CLOEXEC) ? 1 : 0,
+                    //        (fcntl(connfd, F_GETFL) & O_NONBLOCK) ? 1 : 0);
+
                     if(connfd < 0){
                         if(errno == EINTR) continue;
                         if(errno == EAGAIN || 
@@ -128,10 +147,13 @@ int main(){
                         perror("accept4");
                         break;
                     }
+
+                    char ipbuf[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &cli.sin_addr, ipbuf, 
+                        sizeof(ipbuf));
                     
                     printf("new conn fd=%d from %s:%d\n", connfd,
-                        inet_ntoa(cli.sin_addr), 
-                        ntohs(cli.sin_port));
+                        ipbuf, ntohs(cli.sin_port));
 
                     epoll_event cev{};
                     cev.events = EPOLLIN;
