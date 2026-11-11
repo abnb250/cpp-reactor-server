@@ -6,7 +6,7 @@ public接口
     类型别名
     构造/析构
     访问器
-    回调设置
+    设置回调
     行为方法
 private区
     内部方法
@@ -17,25 +17,24 @@ private区
 命名空间收尾
 */
 //我对应的fd是谁，可读时该调哪个回调，可写时该调哪个回调。
-
 #pragma once
 #include <cstdint>
 #include <functional>
 
 namespace reactor{
-class EventLoop;
 
+class EventLoop;
 class Channel{
 public:
     using EventCallback = std::function<void()>;
 
-    Channel(EventLoop* loop_, int fd_);
+    Channel(EventLoop* loop, int fd);
     ~Channel();
 
     int fd() const {return fd_;}
 
-    void setReadCallback(EventCallback cb){ readCallback_ = std::move(cb);}
-    void setCloseCallback(EventCallback cb){ closeCallback_ = std::move(cb);}
+    void setReadCallback(EventCallback cb) {readCallback_ = std::move(cb);}
+    void setCloseCallback(EventCallback cb) {closeCallback_ = std::move(cb);}
 
     void enableReading();
     void handleEvent(uint32_t revents);
@@ -46,11 +45,8 @@ private:
     int fd_;
     uint32_t events_ = 0;
     uint32_t revents_ = 0;
-
     EventCallback readCallback_;
     EventCallback closeCallback_;
-
 };
 
-
-}// namespace reactor
+}//namespace reactor

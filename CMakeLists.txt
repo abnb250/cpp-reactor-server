@@ -19,5 +19,5 @@ add_library(reactor_net
     src/net/TcpConnection.cpp
 )
 
-add_executable(reactor_skeleton examples/reactor-skeleton.cpp)
+add_executable(reactor_skeleton examples/reactor_skeleton.cpp)
 target_link_libraries(reactor_skeleton PRIVATE reactor_net)
