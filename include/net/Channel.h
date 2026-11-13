@@ -20,6 +20,7 @@ private区
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <sys/epoll.h>
 
 namespace reactor{
 
@@ -32,6 +33,8 @@ public:
     ~Channel();
 
     int fd() const {return fd_;}
+
+    uint32_t events() const {return events_;}
 
     void setReadCallback(EventCallback cb) {readCallback_ = std::move(cb);}
     void setCloseCallback(EventCallback cb) {closeCallback_ = std::move(cb);}
