@@ -1,6 +1,10 @@
+//负责把 Channel 关心的事件注册/更新到 epoll，
+//并在 epoll_wait 返回后把就绪 fd 反查成 Channel，
+//交给 EventLoop 分发处理。
+//唯一知道 epoll_ctl / epoll_wait 的地方
 #pragma once
-#include <sys/epoll.h>
 #include <cstdint>
+#include <sys/epoll.h>
 #include <vector>
 #include <unordered_map>
 
@@ -27,4 +31,4 @@ private:
     std::unordered_map<int, Channel*> channels_;
 };
 
-}
+}//namespace reactor

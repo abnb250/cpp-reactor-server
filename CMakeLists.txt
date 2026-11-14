@@ -21,3 +21,6 @@ add_library(reactor_net
 
 add_executable(reactor_skeleton examples/reactor_skeleton.cpp)
 target_link_libraries(reactor_skeleton PRIVATE reactor_net)
+
+add_executable(day5_epoll_test examples/day5_epoll_test.cpp)
+target_link_libraries(day5_epoll_test PRIVATE reactor_net)

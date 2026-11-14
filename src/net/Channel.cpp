@@ -8,13 +8,19 @@ Channel::Channel(EventLoop* loop, int fd) : loop_(loop), fd_(fd) {}
 Channel::~Channel() {}
 
 void Channel::enableReading(){
-    std::cout << "Channel: 准备监听 fd" << fd_ << " 的读事件" << '\n';
+    events_ |= EPOLLIN;
+    update();
 }
 
 void Channel::handleEvent(uint32_t revents){
-    std::cout << "Channel: fd " << fd_ <<"发生事件" << revents << '\n';
+    revents_ = revents;
+    if(revents_ & EPOLLIN){
+        if(readCallback_) readCallback_();
+    }
 }
 
-void Channel::update() {}
+void Channel::update() {
+    loop_->updateChannel(this);
+}
 
 }//namespace reactor
