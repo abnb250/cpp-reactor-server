@@ -56,3 +56,24 @@ bind 失败：`bind: Address already in use`，进程退出。
 但 bind 不再受阻。
 
 ---
+
+cat >> docs/debug-log.md <<'EOF'
+## Day 6: Channel 析构未 remove 导致 epoll 残留
+
+### 现象
+连接关闭后 close(fd)，但没从 epoll 摘除。客户端反复连接/断开 100 次后，
+偶发段错误，GDB backtrace 指向 Channel::handleEvent，但该 Channel 已析构。
+
+### 定位
+strace -e epoll_ctl 观察，close(fd) 之后没有 EPOLL_CTL_DEL。
+fd 被内核复用给新连接后，epoll_wait 把事件投给旧 Channel 的 data.fd，
+EpollPoller 查 channels_ 拿到悬空指针 → UAF。
+
+### 修复
+~Channel() 调用 remove()；EpollPoller::removeChannel 加“未注册直接返回”判断。
+
+### 验证
+strace 确认 EPOLL_CTL_DEL 出现在 close 之前；反复连接 100 次 ASan 无报错。
+EOF
+
+---

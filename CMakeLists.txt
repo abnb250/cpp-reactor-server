@@ -24,3 +24,9 @@ target_link_libraries(reactor_skeleton PRIVATE reactor_net)
 
 add_executable(day5_epoll_test examples/day5_epoll_test.cpp)
 target_link_libraries(day5_epoll_test PRIVATE reactor_net)
+
+add_executable(day6_remove_test examples/day6_remove_test.cpp)
+target_link_libraries(day6_remove_test PRIVATE reactor_net)
+
+add_executable(day6_channel_test examples/day6_channel_test.cpp)
+target_link_libraries(day6_channel_test PRIVATE reactor_net)

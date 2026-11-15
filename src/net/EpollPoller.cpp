@@ -44,6 +44,9 @@ void EpollPoller::updateChannel(Channel* channel){
 
 void EpollPoller::removeChannel(Channel* channel){
     int fd = channel->fd();
+    auto it = channels_.find(fd);
+    if(it == channels_.end()) return;
+
     epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr);
     channels_.erase(fd);
 }

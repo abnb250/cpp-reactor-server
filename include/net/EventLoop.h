@@ -14,6 +14,7 @@ public:
     ~EventLoop();
     void loop();
     void updateChannel(Channel* channel);
+    void removeChannel(Channel* channel);
 private:
     std::unique_ptr<EpollPoller> poller_;
 };
