@@ -30,3 +30,6 @@ target_link_libraries(day6_remove_test PRIVATE reactor_net)
 
 add_executable(day6_channel_test examples/day6_channel_test.cpp)
 target_link_libraries(day6_channel_test PRIVATE reactor_net)
+
+add_executable(day7_reactor_acceptor examples/day7_reactor_acceptor.cpp)
+target_link_libraries(day7_reactor_acceptor PRIVATE reactor_net)
