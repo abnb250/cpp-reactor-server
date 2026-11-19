@@ -33,3 +33,12 @@ target_link_libraries(day6_channel_test PRIVATE reactor_net)
 
 add_executable(day7_reactor_acceptor examples/day7_reactor_acceptor.cpp)
 target_link_libraries(day7_reactor_acceptor PRIVATE reactor_net)
+
+add_executable(day8_buffer_test examples/day8_buffer_test.cpp)
+target_link_libraries(day8_buffer_test PRIVATE reactor_net)
+
+add_executable(day8_lifetime_test examples/day8_lifetime_test.cpp)
+target_link_libraries(day8_lifetime_test PRIVATE reactor_net)
+
+add_executable(day8_echo_reactor examples/day8_echo_reactor.cpp)
+target_link_libraries(day8_echo_reactor PRIVATE reactor_net)

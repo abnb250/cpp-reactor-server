@@ -77,3 +77,150 @@ strace 确认 EPOLL_CTL_DEL 出现在 close 之前；反复连接 100 次 ASan �
 EOF
 
 ---
+
+## Day 8：客户端断开时服务端 heap-use-after-free（Channel 已被回调析构）
+
+### 现象
+
+单客户端 echo 正常。客户端 Ctrl+C 断开后，服务端必现崩溃，ASan 报：
+
+```text
+ERROR: AddressSanitizer: heap-use-after-free
+READ of size 4 at 0x... thread T0
+    #0 reactor::Channel::handleEvent(unsigned int)  Channel.cpp:52
+    #1 reactor::EventLoop::loop()                  EventLoop.cpp:17
+freed by thread T0 here:
+    #4 reactor::TcpConnection::~TcpConnection()    TcpConnection.cpp:33
+    #13 operator()                                 TcpConnection.cpp:46
+```
+
+`0x...` 位于一个 120 字节的 Channel 对象内部偏移 16 处。
+
+### 复现
+
+```bash
+./build/bin/day8_echo_reactor
+# 另开终端
+nc 127.0.0.1 8888
+hello        # 有回显
+# Ctrl+C 断开客户端 → 服务端 ASan 报错并 abort
+```
+
+### 定位过程
+
+1. `strace` 抓关闭路径，顺序正常：
+
+   ```text
+   readv(5, [...], 2) = 0          ← 对端 FIN
+   epoll_ctl(3, EPOLL_CTL_DEL, 5, NULL) = 0
+   close(5) = 0
+   ```
+
+   说明 `handleClose` 的“DEL → close → 通知上层”没写反。
+
+2. 看 ASan 的两段栈：
+
+   - **释放点**：`TcpConnection.cpp:46` 的读回调 lambda 结束 → 局部 `conn`（shared_ptr）析构 → 引用计数归零 → `~TcpConnection` → `channel_.reset()` → `~Channel`；
+   - **访问点**：`Channel::handleEvent` 第 52 行，在 `readCb()` 返回之后。
+
+   即：**Channel 在它自己的 handleEvent 还没返回时就被析构了。**
+
+3. 对照 `Channel.cpp`：
+
+   ```cpp
+   void Channel::handleEvent(uint32_t revents) {
+       revents_ = revents;
+       EventCallback readCb = readCallback_;
+       // ...
+       if (revents_ & (EPOLLHUP | EPOLLERR)) { if (closeCb) closeCb(); }
+       if (revents_ & (EPOLLIN | ...)) { if (readCb) readCb(); }
+       if (revents_ & EPOLLOUT) { if (writeCb) writeCb(); }   // ← 第 52 行
+   }
+   ```
+
+   回调虽然已经拷贝到局部，但**条件判断用的还是成员 `revents_`**。读 `revents_` 就等于访问 `this`，而 `this` 已经没了。
+
+4. 另一个问题：`EPOLLHUP | EPOLLERR` 分支处理完没有 `return`，同轮如果还带 `EPOLLIN`，会在已关闭的连接上继续派发。
+
+### 根因
+
+完整调用链：
+
+```text
+Channel::handleEvent
+  └─ readCallback_()
+       └─ lambda: auto conn = weak.lock(); conn->handleRead();
+            recv 返回 0
+            → handleClose()
+                 → channel_->remove()          // EPOLL_CTL_DEL
+                 → close(fd)
+                 → closeCallback_(shared_from_this())
+                      → EchoServer: connections_.erase(fd)   // 丢掉 map 里的强引用
+            ← handleRead 返回
+       ← lambda 返回，局部 conn 析构，引用计数归零
+            → ~TcpConnection → channel_.reset() → ~Channel
+  ← 回到 handleEvent，继续读 revents_ → heap-use-after-free
+```
+
+`weak_ptr` 只保证“**调用前**连接对象还活着”，它管不了“**回调返回后** Channel 自己还活着”。拷贝回调解决了“回调对象还在不在”，但没解决“`this` 还在不在”。
+
+### 修复
+
+`Channel::handleEvent` 分发期间不碰任何成员：
+
+```cpp
+void Channel::handleEvent(uint32_t revents) {
+    revents_ = revents;              // 只在最前面写一次
+
+    EventCallback readCb  = readCallback_;
+    EventCallback writeCb = writeCallback_;
+    EventCallback closeCb = closeCallback_;
+
+    if (revents & (EPOLLHUP | EPOLLERR)) {
+        if (closeCb) closeCb();
+        return;                      // 错误/挂断处理完立即返回
+    }
+    if (revents & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)) {
+        if (readCb) readCb();
+    }
+    if (revents & EPOLLOUT) {
+        if (writeCb) writeCb();
+    }
+}
+```
+
+两个要点：
+
+1. **条件一律用参数 `revents`**，它在线程栈上，对象析构也不受影响；
+2. `closeCb` 之后 `return`，避免在已关闭连接上继续派发。
+
+`TcpConnection` 侧保持原设计：
+
+- 三个回调捕获 `weak_ptr`，`lock()` 判活；
+- 关闭顺序 `remove() → close(fd) → closeCallback_(erase)`；
+- `closed_` 防重复关闭，`fdClosed_` 防重复 close。
+
+### 验证
+
+```bash
+# 1. 单连接 100 次连断，ASan 无报错
+for i in {1..100}; do (sleep 0.1) | timeout 1 nc 127.0.0.1 8888 & done
+wait
+
+# 2. DEL 在 close 之前，且单次连接只 close 一次
+strace -f -e trace=epoll_ctl,close -o /tmp/day8.strace ./build/bin/day8_echo_reactor
+grep -c 'close(5)' /tmp/day8.strace      # 期望 1
+
+# 3. fd 不泄漏
+PID=$(pgrep -f 'build/bin/day8_echo_reactor' | head -n1)
+ls /proc/$PID/fd | wc -l                 # 压测前后一致
+```
+
+### 复盘（面试可以这么讲）
+
+“我在 Day 8 遇到过一个 UAF：客户端断开时，读回调里 `handleClose` 通知上层 `erase`，连接引用计数归零，`~TcpConnection` 把成员 `Channel` 也析构了；但此刻 `Channel::handleEvent` 还在栈上，回调返回后它继续读成员 `revents_`，访问的就是已释放内存。修复是让 `handleEvent` 先把三个回调拷到局部、条件只用参数 `revents`、错误分支直接 `return`，保证分发期间不碰 `this`。这件事让我分清了两层生命周期：`weak_ptr` 保证的是连接对象在回调执行期间活着，而分发函数自己的 `this` 是否有效，必须由分发逻辑自己保证。”
+
+### 排查中踩的两个坑
+
+1. **`printf` 不带 `\n`**：stdout 行缓冲，日志一直留在缓冲区里，看起来像“服务端没收到数据”，其实是没刷新。定位阶段一度误判成读事件没触发。
+2. **改完源码没重编**：ASan 报告里的 BuildId 和上一次完全一样，说明跑的仍是旧二进制。以后看 BuildId 或 `ls -l build/bin/...` 的时间戳，确认新程序真的生效。

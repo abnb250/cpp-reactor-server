@@ -37,16 +37,21 @@ void Channel::remove(){
 void Channel::handleEvent(uint32_t revents){
     revents_ = revents;
 
-    if(revents_ & (EPOLLHUP | EPOLLERR)){
-        if(closeCallback_) closeCallback_();
+    EventCallback readCb = readCallback_;
+    EventCallback writeCb = writeCallback_;
+    EventCallback closeCb = closeCallback_;
+
+    if(revents & (EPOLLHUP | EPOLLERR)){
+        if(closeCb) closeCb();
+        return;
     }
 
-    if(revents_ & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)){
-        if(readCallback_) readCallback_();
+    if(revents & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)){
+        if(readCb) readCb();
     }
 
-    if(revents_ & EPOLLOUT){
-        if(writeCallback_) writeCallback_();
+    if(revents & EPOLLOUT){
+        if(writeCb) writeCb();
     }
 }
 

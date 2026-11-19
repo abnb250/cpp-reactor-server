@@ -18,6 +18,7 @@ public:
 
     int fd() const {return fd_;}
     uint32_t events() const {return events_;}
+    bool isWriting() const {return (events_ & EPOLLOUT) != 0;}
 
     void setReadCallback(EventCallback cb){readCallback_ = std::move(cb);}
     void setWriteCallback(EventCallback cb) {writeCallback_ = std::move(cb);}
