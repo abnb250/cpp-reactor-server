@@ -32,6 +32,7 @@ TcpConnection::TcpConnection(EventLoop* loop, int sockfd, const sockaddr_in& pee
 TcpConnection::~TcpConnection(){
     channel_.reset();
     if(!fdClosed_){
+        fprintf(stderr, "[BUG] ~TcpConnection fd=%d destoryed without handleClose\n", fd_);
         ::close(fd_);
         fdClosed_ = true;
     }
@@ -61,6 +62,8 @@ void TcpConnection::shutdown(){
 }
 
 void TcpConnection::handleRead(){
+    TcpConnectionPtr guard = shared_from_this();
+
     int savedErrno = 0;
     ssize_t n = inputBuffer_.readFd(fd_, &savedErrno);
     if(n > 0){
@@ -81,6 +84,8 @@ void TcpConnection::send(const std::string& data){
 }
 
 void TcpConnection::sendInLoop(const char* data, size_t len){
+    if(!connected_ || closed_) return;
+
     ssize_t nwrote = 0;
     if(outputBuffer_.readableBytes() == 0){
         nwrote = ::send(fd_, data, len, MSG_NOSIGNAL);
@@ -101,6 +106,8 @@ void TcpConnection::sendInLoop(const char* data, size_t len){
 }
 
 void TcpConnection::handleWrite(){
+    TcpConnectionPtr guard = shared_from_this();
+
     if(outputBuffer_.readableBytes() == 0){
         channel_->disableWriting();
         return;

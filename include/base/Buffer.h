@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <cstring>
 #include <sys/types.h>
 
 namespace reactor{
@@ -22,6 +23,11 @@ public:
     size_t prependableBytes () const {return readerIndex_; }
 
     const char* peek () const {return begin() + readerIndex_; }
+
+    const char* findEOL() const{
+        return static_cast<const char*>(std::memchr(peek(), '\n',
+                                        readableBytes() ) );
+    }
 
     ////
     void retrieve(size_t len){

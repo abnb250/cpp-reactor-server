@@ -224,3 +224,37 @@ ls /proc/$PID/fd | wc -l                 # 压测前后一致
 
 1. **`printf` 不带 `\n`**：stdout 行缓冲，日志一直留在缓冲区里，看起来像“服务端没收到数据”，其实是没刷新。定位阶段一度误判成读事件没触发。
 2. **改完源码没重编**：ASan 报告里的 BuildId 和上一次完全一样，说明跑的仍是旧二进制。以后看 BuildId 或 `ls -l build/bin/...` 的时间戳，确认新程序真的生效。
+
+---
+
+## day9: sizeof 用在指针或容器上永远是“类型大小”，不是“数据长度”
+现象：客户端只发出每条消息的前 32 字节，服务端回显无 '\n'，readLine 永远等不到整行。
+定位：sendAll(fd, line.data(), sizeof(line)) —— sizeof(std::string) == 32。
+修复：改为 line.size()。
+教训：sizeof 只对裸数组/内置类型等于长度；对指针是 8，对容器是对象大小。
+
+---
+
+## Day 9: 一次可读被当成一条消息，一条命令被处理两遍
+
+### 现象
+压测客户端 ok/mismatch 全绿，看不出问题。但在 MessageCallback 里加一行探针
+打印 readableBytes() 后发现：一条 1411 字节的消息被内核拆成 8 + 1403 两次可读事件，
+MessageCallback 被调用两次，服务端也回发了两次。
+把业务从"整块回显"改成"按 '\n' 切行"之后，第一次那 8 字节里没有 '\n'，
+这条消息直接卡住不回声，客户端超时，压测才暴露出 failed。
+
+### 定位
+`MessageCallback` 里直接 `peek()` + `retrieveAll()` 并回发，隐含假设"一次可读 == 一条消息"。
+Day 8 的 echo 在字节层面是透明的（8 + 1403 拼起来仍然正确），所以这个假设一直被掩盖；
+一旦业务需要"按消息处理"（心跳、长度协议、登录请求），半包就会被当成一条独立命令。
+
+### 修复
+1. Buffer 增加 findEOL()，业务循环"切出一整行才处理"；
+2. 切不出 '\n' 就 break，剩余字节留在 inputBuffer_ 等下一次可读事件；
+3. 连接表 erase 前用 it->second == conn 做身份校验，防止 fd 复用删错连接；
+4. handleRead/handleWrite 加 shared_from_this() guard，防止回调中途析构后继续访问成员。
+
+### 验证
+splitMs=20 的半包压测 20 条全 ok；服务端 lines 计数 = 消息条数（不是事件次数）；
+strace 确认 EPOLL_CTL_DEL 在 close 之前且 close 只出现一次；40 个短连接后 fd 数回落。

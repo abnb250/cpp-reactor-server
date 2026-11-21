@@ -40,5 +40,8 @@ target_link_libraries(day8_buffer_test PRIVATE reactor_net)
 add_executable(day8_lifetime_test examples/day8_lifetime_test.cpp)
 target_link_libraries(day8_lifetime_test PRIVATE reactor_net)
 
-add_executable(day8_echo_reactor examples/day8_echo_reactor.cpp)
-target_link_libraries(day8_echo_reactor PRIVATE reactor_net)
+add_executable(echo_reactor examples/echo_reactor.cpp)
+target_link_libraries(echo_reactor PRIVATE reactor_net)
+
+add_executable(day9_echo_client examples/day9_echo_client.cpp)
+target_link_libraries(day9_echo_client PRIVATE reactor_net)
